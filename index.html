@@ -3,11 +3,12 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>qpa$$Pro — Finanças Pessoais</title>
+  <title>qpassFinancePRo — Finanças Pessoais</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css" />
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
   <style>
     :root {
       --bg: #0F1117;
@@ -184,7 +185,7 @@
   <!-- SIDEBAR -->
   <aside class="sidebar">
     <div class="logo">
-      <div class="logo-name">qpa<span class="dollar">$$</span>Pro</div>
+      <div class="logo-name">qpass<span class="dollar">Finance</span>PRo</div>
       <div class="logo-sub">Finanças Pessoais</div>
     </div>
 
@@ -204,9 +205,20 @@
     <div class="sb-accounts" id="sb-accounts"></div>
 
     <div class="sb-bottom">
-      <div class="sb-drive" onclick="syncDrive()">
-        <i class="ti ti-brand-google-drive"></i>
-        <span id="drive-label">Sincronizar Drive</span>
+      <div id="drive-user" style="display:none;padding:10px 20px;border-top:1px solid var(--border)">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+          <img id="drive-avatar" src="" style="width:24px;height:24px;border-radius:50%;display:none" />
+          <span id="drive-name" style="font-size:12px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1"></span>
+        </div>
+        <button class="btn btn-primary" onclick="syncDrive()" style="width:100%;justify-content:center;font-size:12px;padding:6px 10px">
+          <i class="ti ti-brand-google-drive"></i><span id="drive-label">Salvar no Drive</span>
+        </button>
+        <button onclick="driveLogout()" style="width:100%;margin-top:6px;background:none;border:none;font-size:11px;color:var(--text3);cursor:pointer;padding:4px">Sair da conta Google</button>
+      </div>
+      <div id="drive-login" style="padding:12px 16px;border-top:1px solid var(--border)">
+        <button onclick="driveLogin()" class="btn" style="width:100%;justify-content:center;font-size:12px;gap:8px">
+          <i class="ti ti-brand-google-drive" style="font-size:15px"></i> Conectar Google Drive
+        </button>
       </div>
     </div>
   </aside>
@@ -219,7 +231,7 @@
         <button class="btn" onclick="showPage('lancamentos',null);openAddForm()">
           <i class="ti ti-plus"></i> Lançamento
         </button>
-        <button class="btn btn-primary" onclick="syncDrive()">
+        <button class="btn btn-primary" onclick="driveAction()">
           <i class="ti ti-brand-google-drive"></i> Drive
         </button>
       </div>
@@ -426,7 +438,7 @@ const DEFAULT_CATS = {
   receita: ['Salário','Freelance','Investimentos','Outros']
 };
 const CAT_COLORS = ['#378ADD','#1D9E75','#D4537E','#D4832A','#534AB7','#E24B4A','#0F6E56','#888780'];
-const DRIVE_FILE = 'qpas_pro_dados.json';
+const DRIVE_FILE = 'qpassfinancepro_dados.json';
 let data = { accounts: [], transactions: [], budgets: {}, goals: [], categories: { despesa: [], receita: [] } };
 let chartFlow = null, chartRep = null;
 let calYear = new Date().getFullYear(), calMonth = new Date().getMonth();
@@ -438,11 +450,11 @@ function getCats(type) {
 
 // ── STORAGE ──
 function load() {
-  try { const s = localStorage.getItem('qpaspro'); if (s) data = JSON.parse(s); } catch(e) {}
+  try { const s = localStorage.getItem('qpassfinancepro'); if (s) data = JSON.parse(s); } catch(e) {}
   if (!data.categories) data.categories = { despesa: [], receita: [] };
   if (!data.accounts.length) seedData();
 }
-function save() { try { localStorage.setItem('qpaspro', JSON.stringify(data)); } catch(e) {} }
+function save() { try { localStorage.setItem('qpassfinancepro', JSON.stringify(data)); } catch(e) {} }
 
 function seedData() {
   data.accounts = [
@@ -846,37 +858,157 @@ function renderReport(type) {
   }
 }
 
-// ── GOOGLE DRIVE SYNC ──
-async function syncDrive() {
-  const lbl = document.getElementById('drive-label');
-  const bar = document.getElementById('status-bar');
-  bar.style.display = 'flex';
-  bar.className = 'status-bar saving';
-  bar.innerHTML = '<i class="ti ti-loader-2"></i> Sincronizando com o Google Drive...';
-  lbl.textContent = 'Sincronizando...';
-  try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 1000,
-        mcp_servers: [{ type: 'url', url: 'https://drivemcp.googleapis.com/mcp/v1', name: 'gdrive' }],
-        messages: [{ role: 'user', content: `Salve ou atualize um arquivo chamado "${DRIVE_FILE}" na raiz do Google Drive com este JSON (dados do qpa$$Pro). Se já existir, substitua. Conteúdo: ${JSON.stringify(data)}. Responda só com "ok".` }]
-      })
-    });
-    const json = await res.json();
-    if (json.error) throw new Error(json.error.message);
-    bar.className = 'status-bar ok';
-    bar.innerHTML = '<i class="ti ti-circle-check"></i> Dados salvos no Google Drive com sucesso!';
-    lbl.textContent = 'Sincronizar Drive';
-    setTimeout(() => { bar.style.display = 'none'; }, 4000);
-  } catch(e) {
-    bar.className = 'status-bar err';
-    bar.innerHTML = `<i class="ti ti-alert-circle"></i> Erro: ${e.message || 'Conecte o Google Drive primeiro.'}`;
-    lbl.textContent = 'Sincronizar Drive';
-    setTimeout(() => { bar.style.display = 'none'; }, 5000);
+// ── GOOGLE DRIVE INTEGRATION ──
+// IMPORTANT: Replace with your own Google OAuth Client ID
+// Get one free at: https://console.cloud.google.com
+// 1. Create project → Enable "Google Drive API"
+// 2. OAuth 2.0 → Authorized origins: https://qpasspro.vercel.app
+// 3. Copy Client ID below
+const GOOGLE_CLIENT_ID = '401991447693-q18hc1vnbc2d8j0vn0lbssf9je9415kv.apps.googleusercontent.com';
+const DRIVE_SCOPES = 'https://www.googleapis.com/auth/drive.file';
+const DRIVE_FILENAME = 'qpassfinancepro_dados.json';
+
+let gAccessToken = null;
+let gDriveFileId = localStorage.getItem('qpassfinancepro_drive_id') || null;
+
+function driveAction() {
+  if (gAccessToken) syncDrive();
+  else driveLogin();
+}
+
+function driveLogin() {
+  if (!window.google) {
+    showStatus('err', 'Google não carregou ainda. Aguarde e tente novamente.');
+    return;
   }
+  if (GOOGLE_CLIENT_ID.includes('SEU_CLIENT_ID')) {
+    showStatus('err', '⚙️ Configure o Google Client ID no código para ativar o Drive.');
+    return;
+  }
+  const client = google.accounts.oauth2.initTokenClient({
+    client_id: GOOGLE_CLIENT_ID,
+    scope: DRIVE_SCOPES,
+    callback: async (resp) => {
+      if (resp.error) { showStatus('err', 'Erro no login Google: ' + resp.error); return; }
+      gAccessToken = resp.access_token;
+      await loadGoogleUser();
+      document.getElementById('drive-login').style.display = 'none';
+      document.getElementById('drive-user').style.display = 'block';
+      showStatus('ok', 'Google Drive conectado! Clique em "Salvar no Drive" para sincronizar.');
+    }
+  });
+  client.requestAccessToken();
+}
+
+async function loadGoogleUser() {
+  try {
+    const res = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+      headers: { Authorization: 'Bearer ' + gAccessToken }
+    });
+    const u = await res.json();
+    document.getElementById('drive-name').textContent = u.name || u.email || 'Conectado';
+    if (u.picture) {
+      const av = document.getElementById('drive-avatar');
+      av.src = u.picture; av.style.display = 'block';
+    }
+  } catch(e) {}
+}
+
+function driveLogout() {
+  gAccessToken = null; gDriveFileId = null;
+  localStorage.removeItem('qpassfinancepro_drive_id');
+  document.getElementById('drive-login').style.display = 'block';
+  document.getElementById('drive-user').style.display = 'none';
+  showStatus('ok', 'Desconectado do Google Drive.');
+}
+
+async function syncDrive() {
+  if (!gAccessToken) { driveLogin(); return; }
+  const lbl = document.getElementById('drive-label');
+  lbl.textContent = 'Salvando...';
+  showStatus('saving', 'Salvando no Google Drive...');
+  try {
+    const content = JSON.stringify(data, null, 2);
+    const blob = new Blob([content], { type: 'application/json' });
+
+    // Try to find existing file if we don't have ID
+    if (!gDriveFileId) {
+      const search = await fetch(
+        `https://www.googleapis.com/drive/v3/files?q=name%3D%27${DRIVE_FILENAME}%27+and+trashed%3Dfalse&fields=files(id,name)`,
+        { headers: { Authorization: 'Bearer ' + gAccessToken } }
+      );
+      const found = await search.json();
+      if (found.files && found.files.length > 0) {
+        gDriveFileId = found.files[0].id;
+        localStorage.setItem('qpassfinancepro_drive_id', gDriveFileId);
+      }
+    }
+
+    let res;
+    if (gDriveFileId) {
+      // Update existing file
+      res = await fetch(`https://www.googleapis.com/upload/drive/v3/files/${gDriveFileId}?uploadType=media`, {
+        method: 'PATCH',
+        headers: { Authorization: 'Bearer ' + gAccessToken, 'Content-Type': 'application/json' },
+        body: blob
+      });
+    } else {
+      // Create new file with metadata
+      const form = new FormData();
+      form.append('metadata', new Blob([JSON.stringify({ name: DRIVE_FILENAME, mimeType: 'application/json' })], { type: 'application/json' }));
+      form.append('file', blob);
+      res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + gAccessToken },
+        body: form
+      });
+      const created = await res.json();
+      if (created.id) {
+        gDriveFileId = created.id;
+        localStorage.setItem('qpassfinancepro_drive_id', gDriveFileId);
+      }
+    }
+
+    if (!res.ok) {
+      const err = await res.json();
+      // Token expired — ask to login again
+      if (res.status === 401) { gAccessToken = null; driveLogin(); return; }
+      throw new Error(err.error?.message || 'Erro desconhecido');
+    }
+
+    const now = new Date().toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' });
+    showStatus('ok', `✅ Dados salvos no Google Drive às ${now}!`);
+  } catch(e) {
+    showStatus('err', 'Erro ao salvar: ' + (e.message || 'Verifique sua conexão.'));
+  } finally {
+    lbl.textContent = 'Salvar no Drive';
+  }
+}
+
+async function loadFromDrive() {
+  if (!gAccessToken || !gDriveFileId) return;
+  try {
+    const res = await fetch(`https://www.googleapis.com/drive/v3/files/${gDriveFileId}?alt=media`, {
+      headers: { Authorization: 'Bearer ' + gAccessToken }
+    });
+    if (!res.ok) return;
+    const remote = await res.json();
+    if (remote && remote.accounts) {
+      data = remote;
+      save();
+      renderAll();
+      showStatus('ok', 'Dados carregados do Google Drive!');
+    }
+  } catch(e) {}
+}
+
+function showStatus(type, text) {
+  const bar = document.getElementById('status-bar');
+  const icons = { ok:'ti-circle-check', saving:'ti-loader-2', err:'ti-alert-circle' };
+  bar.style.display = 'flex';
+  bar.className = 'status-bar ' + type;
+  bar.innerHTML = `<i class="ti ${icons[type]}"></i> ${text}`;
+  if (type !== 'saving') setTimeout(() => { bar.style.display = 'none'; }, type === 'err' ? 6000 : 4000);
 }
 
 // ── RENDER ALL ──
