@@ -210,10 +210,13 @@
           <img id="drive-avatar" src="" style="width:24px;height:24px;border-radius:50%;display:none" />
           <span id="drive-name" style="font-size:12px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1"></span>
         </div>
-        <button class="btn btn-primary" onclick="syncDrive()" style="width:100%;justify-content:center;font-size:12px;padding:6px 10px">
-          <i class="ti ti-brand-google-drive"></i><span id="drive-label">Salvar no Drive</span>
+        <button class="btn btn-primary" onclick="syncDrive()" style="width:100%;justify-content:center;font-size:12px;padding:6px 10px;margin-bottom:6px">
+          <i class="ti ti-cloud-upload"></i><span id="drive-label">Salvar no Drive</span>
         </button>
-        <button onclick="driveLogout()" style="width:100%;margin-top:6px;background:none;border:none;font-size:11px;color:var(--text3);cursor:pointer;padding:4px">Sair da conta Google</button>
+        <button onclick="loadFromDrive()" style="width:100%;justify-content:center;font-size:12px;padding:6px 10px;margin-bottom:6px;display:flex;align-items:center;gap:6px;background:var(--bg3);color:var(--text2);border:1px solid var(--border);border-radius:7px;cursor:pointer;font-family:inherit">
+          <i class="ti ti-cloud-download"></i><span id="load-label">Carregar do Drive</span>
+        </button>
+        <button onclick="driveLogout()" style="width:100%;background:none;border:none;font-size:11px;color:var(--text3);cursor:pointer;padding:4px">Sair da conta Google</button>
       </div>
       <div id="drive-login" style="padding:12px 16px;border-top:1px solid var(--border)">
         <button onclick="driveLogin()" class="btn" style="width:100%;justify-content:center;font-size:12px;gap:8px">
@@ -986,20 +989,53 @@ async function syncDrive() {
 }
 
 async function loadFromDrive() {
-  if (!gAccessToken || !gDriveFileId) return;
+  if (!gAccessToken) { driveLogin(); return; }
+  const lbl = document.getElementById('load-label');
+  lbl.textContent = 'Carregando...';
+  showStatus('saving', 'Buscando dados no Google Drive...');
   try {
+    // Search for file if no ID saved
+    if (!gDriveFileId) {
+      const search = await fetch(
+        `https://www.googleapis.com/drive/v3/files?q=name%3D%27${DRIVE_FILENAME}%27+and+trashed%3Dfalse&fields=files(id,name,modifiedTime)`,
+        { headers: { Authorization: 'Bearer ' + gAccessToken } }
+      );
+      const found = await search.json();
+      if (!found.files || found.files.length === 0) {
+        showStatus('err', 'Nenhum arquivo encontrado no Drive. Salve primeiro em outro dispositivo.');
+        lbl.textContent = 'Carregar do Drive';
+        return;
+      }
+      gDriveFileId = found.files[0].id;
+      localStorage.setItem('qpassfinancepro_drive_id', gDriveFileId);
+    }
+
     const res = await fetch(`https://www.googleapis.com/drive/v3/files/${gDriveFileId}?alt=media`, {
       headers: { Authorization: 'Bearer ' + gAccessToken }
     });
-    if (!res.ok) return;
-    const remote = await res.json();
-    if (remote && remote.accounts) {
-      data = remote;
-      save();
-      renderAll();
-      showStatus('ok', 'Dados carregados do Google Drive!');
+    if (!res.ok) {
+      if (res.status === 401) { gAccessToken = null; driveLogin(); return; }
+      if (res.status === 404) { gDriveFileId = null; localStorage.removeItem('qpassfinancepro_drive_id'); showStatus('err', 'Arquivo não encontrado no Drive.'); lbl.textContent = 'Carregar do Drive'; return; }
+      throw new Error('Erro ao baixar arquivo');
     }
-  } catch(e) {}
+
+    const remote = await res.json();
+    if (!remote || !remote.accounts) throw new Error('Arquivo inválido ou corrompido.');
+
+    const ok = confirm(`Deseja substituir os dados locais pelos dados do Google Drive?\n\nIsso irá sobrescrever todos os lançamentos, contas e metas salvos neste dispositivo.`);
+    if (!ok) { showStatus('err', 'Carregamento cancelado.'); lbl.textContent = 'Carregar do Drive'; return; }
+
+    data = remote;
+    if (!data.categories) data.categories = { despesa: [], receita: [] };
+    save();
+    renderAll();
+    const now = new Date().toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' });
+    showStatus('ok', `✅ Dados carregados do Google Drive às ${now}!`);
+  } catch(e) {
+    showStatus('err', 'Erro ao carregar: ' + (e.message || 'Verifique sua conexão.'));
+  } finally {
+    lbl.textContent = 'Carregar do Drive';
+  }
 }
 
 function showStatus(type, text) {
